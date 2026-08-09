@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Editor</title>
+<style>
+  :root{
+    --bg: #000000;
+    --bg-canvas: #000000;
+    --panel: #0d0d0d;
+    --panel-2: #1a1a1a;
+    --border: #2e2e2e;
+    --text: #f4f4f4;
+    --text-dim: #8a8a8a;
+    --accent: #ffffff;
+    --accent-text: #000000;
+    --danger: #ff4d4d;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text); overflow:hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+  #app { display:flex; height:100vh; width:100vw; }
+
+  /* ---------- canvas area ---------- */
+  #canvasContainer {
+    flex: 1 1 auto;
+    position: relative;
+    background: #000;
+    display:flex; align-items:center; justify-content:center;
+    min-width: 0;
+  }
+  #mainCanvas { display:block; touch-action:none; cursor: grab; }
+  #mainCanvas.dragging { cursor: grabbing; }
+
+  #dropHint {
+    position:absolute; inset:0; display:none;
+    align-items:center; justify-content:center;
+    background: rgba(255,255,255,0.06);
+    border: 2px dashed var(--accent);
+    margin: 16px; border-radius: var(--radius);
+    color: var(--accent); font-size: 15px; letter-spacing:.02em;
+    pointer-events:none;
+  }
+  #canvasContainer.dragover #dropHint { display:flex; }
+
+  #emptyState {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:10px;
+    color: var(--text-dim); text-align:center; pointer-events:none;
+    font-size: 14px; padding: 0 24px;
+  }
+  #emptyState b { color: var(--text); font-weight:600; }
+
+  #canvasTopBar{
+    position:absolute; top:14px; left:14px; right:14px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none; font-size:12px; color:var(--text-dim);
+  }
+  #canvasTopBar .pill{
+    background: rgba(13,13,13,0.9); border:1px solid var(--border);
+    padding:5px 10px; border-radius:999px; backdrop-filter: blur(6px);
+  }
+
+  #canvasBottomBar{
+    position:absolute; left:14px; right:14px; bottom:14px;
+    display:none; align-items:center; gap:10px;
+  }
+  #canvasBottomBar.visible{ display:flex; }
+  #canvasBottomBar .time{
+    font-size:11px; color:var(--text-dim); background:rgba(13,13,13,0.9);
+    border:1px solid var(--border); padding:5px 8px; border-radius:6px; min-width:38px; text-align:center;
+  }
+  #seekBar{ flex:1; }
+
+  /* ---------- side panel ---------- */
+  #panel {
+    flex: 0 0 clamp(300px, 24vw, 380px);
+    width: clamp(300px, 24vw, 380px);
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 20px 18px 28px;
+    display:flex; flex-direction:column; gap:22px;
+  }
+  #panel::-webkit-scrollbar{ width:8px; }
+  #panel::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
+
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand .dot{ width:10px; height:10px; border-radius:2px; background:var(--accent); }
+  .brand h1{ font-size:15px; margin:0; font-weight:700; letter-spacing:.04em; }
+  .brand span{ display:block; font-size:11px; color:var(--text-dim); margin-top:1px; }
+
+  .section{ display:flex; flex-direction:column; gap:10px; }
+  .section-title{
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-dim); font-weight:600;
+  }
+
+  .segmented{ display:flex; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:3px; gap:3px; }
+  .segmented button{
+    flex:1; background:transparent; border:none; color:var(--text-dim);
+    padding:8px 6px; font-size:13px; border-radius:6px; cursor:pointer;
+    font-weight:600; transition: all .15s ease; font-family: inherit;
+  }
+  .segmented button.active{ background: var(--accent); color:var(--accent-text); }
+  .segmented button:not(.active):hover{ color:var(--text); background:rgba(255,255,255,0.06); }
+
+  button.btn{
+    background: var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:9px 12px; font-size:13px; border-radius:8px; cursor:pointer;
+    font-weight:600; font-family:inherit; transition: all .15s ease;
+  }
+  button.btn:hover{ border-color: var(--accent); }
+  button.btn:disabled{ opacity:.35; cursor:not-allowed; }
+  button.btn.primary{ background: var(--accent); border-color:var(--accent); color:var(--accent-text); }
+  button.btn.primary:hover{ filter:brightness(0.92); }
+  button.btn.danger{ background: var(--danger); border-color:var(--danger); color:#fff; }
+  button.btn.block{ width:100%; }
+  button.btn.ghost{ background:transparent; }
+  .row{ display:flex; gap:8px; }
+
+  .format-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .format-btn{
+    display:flex; flex-direction:column; align-items:center; gap:7px;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:8px;
+    padding:10px 8px; cursor:pointer; color:var(--text-dim); font-size:11px; font-weight:600;
+    font-family:inherit; transition: all .15s ease;
+  }
+  .format-btn:hover{ border-color:var(--accent); color:var(--text); }
+  .format-btn.active{ border-color:var(--accent); color:var(--accent-text); background:var(--accent); }
+  .format-icon{ border:2px solid currentColor; border-radius:2px; }
+  .fi-169{ width:26px; aspect-ratio:16/9; }
+  .fi-916{ width:15px; aspect-ratio:9/16; }
+  .fi-11{ width:20px; aspect-ratio:1/1; }
+  .fi-orig{ width:22px; aspect-ratio:4/3; border-style:dashed; }
+
+  .field{ display:flex; flex-direction:column; gap:6px; }
+  .field-label{ display:flex; justify-content:space-between; font-size:12px; color:var(--text-dim); }
+  .field-label b{ color:var(--text); font-weight:600; }
+  input[type="range"]{
+    -webkit-appearance:none; width:100%; height:4px; border-radius:2px;
+    background: var(--panel-2); outline:none;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+    background: var(--accent); cursor:pointer; border:2px solid #0008;
+  }
+  input[type="range"]:disabled{ opacity:.35; }
+
+  select{
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text);
+    padding:8px 10px; border-radius:8px; font-size:13px; font-family:inherit; width:100%;
+  }
+
+  .hint-text{ font-size:11.5px; color:var(--text-dim); line-height:1.5; }
+  .divider{ height:1px; background:var(--border); margin:2px 0; }
+
+  #status{
+    font-size:11.5px; color:var(--text-dim); background:var(--panel-2);
+    border:1px solid var(--border); border-radius:8px; padding:9px 10px; line-height:1.5;
+  }
+  #status.recording{ color:var(--danger); border-color:var(--danger); }
+
+  @media (max-width: 760px){
+    #app{ flex-direction:column; }
+    #panel{ flex:0 0 auto; width:100%; height:auto; max-height:48vh; border-left:none; border-top:1px solid var(--border); order:2; }
+    #canvasContainer{ order:1; height:52vh; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="canvasContainer">
+    <canvas id="mainCanvas"></canvas>
+    <div id="canvasTopBar">
+      <div class="pill" id="dimsPill">—</div>
+      <div class="pill" id="cropHintPill">Táhni obrázek pro posun výřezu · kolečko myši = zoom</div>
+    </div>
+    <div id="canvasBottomBar">
+      <div class="time" id="timeCurrent">0:00</div>
+      <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1">
+      <div class="time" id="timeDuration">0:00</div>
+    </div>
+    <div id="emptyState">
+      <div><b>Prázdno.</b> Přetáhni soubor sem, nebo klikni na „Nahrát“ vpravo.</div>
+    </div>
+    <div id="dropHint">Pusť soubor pro nahrání</div>
+  </div>
+
+  <aside id="panel">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <h1>PIXEL EDITOR</h1>
+        <span>foto a video → pixel art</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Režim</div>
+      <div class="segmented">
+        <button id="modePhoto" class="active">Foto</button>
+        <button id="modeVideo">Video</button>
+      </div>
+      <button class="btn block" id="uploadBtn">Nahrát fotku</button>
+      <input type="file" id="fileInput" accept="image/*" hidden>
+      <input type="file" id="videoInput" accept="video/*" hidden>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Výstupní formát</div>
+      <div class="format-grid">
+        <button class="format-btn active" data-format="16:9"><span class="format-icon fi-169"></span>16:9</button>
+        <button class="format-btn" data-format="9:16"><span class="format-icon fi-916"></span>9:16</button>
+        <button class="format-btn" data-format="1:1"><span class="format-icon fi-11"></span>1:1</button>
+        <button class="format-btn" data-format="original"><span class="format-icon fi-orig"></span>Originál</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Oříznutí</div>
+      <div class="field">
+        <div class="field-label"><span>Zoom</span><b id="zoomValue">1.00×</b></div>
+        <input type="range" id="zoomSlider" min="1" max="4" step="0.01" value="1">
+      </div>
+      <div class="hint-text">Táhni obrázek na plátně a vyber, která část se vejde do rámu. Kolečko myši = zoom.</div>
+      <button class="btn ghost block" id="resetCropBtn">Resetovat oříznutí</button>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Pixelizace</div>
+      <div class="field">
+        <div class="field-label"><span>Velikost pixelu</span><b id="pixelSizeValue">14</b></div>
+        <input type="range" id="pixelSize" min="3" max="120" value="14">
+      </div>
+    </div>
+
+    <div class="section" id="videoControlsSection" style="display:none;">
+      <div class="section-title">Přehrávání</div>
+      <div class="row">
+        <button class="btn" id="playPauseBtn" disabled>Přehrát</button>
+        <button class="btn" id="stopBtn" disabled>Stop</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Export</div>
+      <div class="field">
+        <div class="field-label"><span>Kvalita</span></div>
+        <select id="qualitySelect">
+          <option value="fhd">Originál / Full HD (min. 1920 px)</option>
+          <option value="4k">4K (min. 3840 px)</option>
+        </select>
+      </div>
+      <button class="btn primary block" id="saveBtn">Uložit PNG</button>
+      <button class="btn ghost block" id="exportAllBtn">Exportovat všechny formáty</button>
+
+      <div id="videoExportRow" style="display:none;" class="section">
+        <div class="row">
+          <button class="btn block" id="recordBtn">Spustit nahrávání</button>
+        </div>
+        <button class="btn ghost block" id="snapshotBtn">Uložit aktuální snímek (PNG)</button>
+        <button class="btn ghost block" id="convertBtn" style="display:none;">Převést na MP4</button>
+        <div class="hint-text" id="formatHint"></div>
+      </div>
+    </div>
+
+    <div id="status">Připraveno.</div>
+  </aside>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------------------------------------------------------------
+  // DOM refs
+  // ---------------------------------------------------------------
+  const canvas = document.getElementById('mainCanvas');
+  const ctx = canvas.getContext('2d');
+  const canvasContainer = document.getElementById('canvasContainer');
+  const emptyState = document.getElementById('emptyState');
+  const dimsPill = document.getElementById('dimsPill');
+  const statusEl = document.getElementById('status');
+
+  const modePhotoBtn = document.getElementById('modePhoto');
+  const modeVideoBtn = document.getElementById('modeVideo');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const fileInput = document.getElementById('fileInput');
+  const videoInput = document.getElementById('videoInput');
+  const videoControlsSection = document.getElementById('videoControlsSection');
+  const playPauseBtn = document.getElementById('playPauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const formatButtons = [...document.querySelectorAll('.format-btn')];
+  const zoomSlider = document.getElementById('zoomSlider');
+  const zoomValue = document.getElementById('zoomValue');
+  const resetCropBtn = document.getElementById('resetCropBtn');
+  const pixelSizeSlider = document.getElementById('pixelSize');
+  const pixelSizeValue = document.getElementById('pixelSizeValue');
+  const qualitySelect = document.getElementById('qualitySelect');
+  const saveBtn = document.getElementById('saveBtn');
+  const exportAllBtn = document.getElementById('exportAllBtn');
+  const videoExportRow = document.getElementById('videoExportRow');
+  const recordBtn = document.getElementById('recordBtn');
+  const snapshotBtn = document.getElementById('snapshotBtn');
+  const convertBtn = document.getElementById('convertBtn');
+  const formatHint = document.getElementById('formatHint');
+
+  const canvasBottomBar = document.getElementById('canvasBottomBar');
+  const seekBar = document.getElementById('seekBar');
+  const timeCurrent = document.getElementById('timeCurrent');
+  const timeDuration = document.getElementById('timeDuration');
+
+  // hidden native video element used as a draw source
+  const sourceVideo = document.createElement('video');
+  sourceVideo.muted = true;
+  sourceVideo.playsInline = true;
+  sourceVideo.loop = false;
+
+  // ---------------------------------------------------------------
+  // state
+  // ---------------------------------------------------------------
+  const state = {
+    mode: 'photo',            // 'photo' | 'video'
+    media: null,               // HTMLImageElement | HTMLVideoElement
+    mediaW: 0, mediaH: 0,
+    format: '16:9',             // '16:9' | '9:16' | '1:1' | 'original'
+    panX: 0, panY: 0,           // normalized [-1,1]
+    zoom: 1,
+    pixelSlider: 14,
+    quality: 'fhd',
+    isPlaying: false,
+    videoLoaded: false,
+    recording: false,
+    seeking: false,
+  };
+
+  const REF_W = 1000; // reference used to make pixel-block density resolution-independent
+
+  // ---------------------------------------------------------------
+  // helpers: geometry
+  // ---------------------------------------------------------------
+  function currentAspect() {
+    if (state.format === 'original') {
+      if (state.mediaW && state.mediaH) return state.mediaW / state.mediaH;
+      return 4 / 3;
+    }
+    const [w, h] = state.format.split(':').map(Number);
+    return w / h;
+  }
+
+  function fitFrame(containerW, containerH, aspect, padding = 40) {
+    const availW = Math.max(10, containerW - padding * 2);
+    const availH = Math.max(10, containerH - padding * 2 - (state.mode === 'video' && state.videoLoaded ? 36 : 0));
+    let w, h;
+    if (availW / availH > aspect) { h = availH; w = h * aspect; }
+    else { w = availW; h = w / aspect; }
+    return { x: (containerW - w) / 2, y: (containerH - h) / 2, w, h };
+  }
+
+  // Cover-fit crop rect (source coords) given a target frame size + pan/zoom
+  function computeCrop(mediaW, mediaH, frameW, frameH) {
+    const coverScale = Math.max(frameW / mediaW, frameH / mediaH);
+    const scale = coverScale * state.zoom;
+    const sw = frameW / scale;
+    const sh = frameH / scale;
+    const maxPanX = (mediaW - sw) / 2;
+    const maxPanY = (mediaH - sh) / 2;
+    let sx = mediaW / 2 - sw / 2 - state.panX * maxPanX;
+    let sy = mediaH / 2 - sh / 2 - state.panY * maxPanY;
+    sx = Math.min(Math.max(sx, 0), Math.max(0, mediaW - sw));
+    sy = Math.min(Math.max(sy, 0), Math.max(0, mediaH - sh));
+    return { sx, sy, sw, sh };
+  }
+
+  function colsRowsFor(frameW, frameH, sliderVal) {
+    let cols = Math.round(REF_W / sliderVal);
+    cols = Math.max(4, Math.min(cols, Math.round(frameW)));
+    let rows = Math.max(2, Math.round(cols * (frameH / frameW)));
+    return { cols, rows };
+  }
+
+  // buffer canvas reused for the downsample step
+  const bufferCanvas = document.createElement('canvas');
+  const bufferCtx = bufferCanvas.getContext('2d');
+
+  function renderPixelated(destCtx, media, mediaW, mediaH, x, y, w, h, sliderVal) {
+    if (!media || !mediaW || !mediaH || w <= 0 || h <= 0) return;
+    const { sx, sy, sw, sh } = computeCrop(mediaW, mediaH, w, h);
+    const { cols, rows } = colsRowsFor(w, h, sliderVal);
+
+    if (bufferCanvas.width !== cols) bufferCanvas.width = cols;
+    if (bufferCanvas.height !== rows) bufferCanvas.height = rows;
+    bufferCtx.imageSmoothingEnabled = true;
+    bufferCtx.clearRect(0, 0, cols, rows);
+    try {
+      bufferCtx.drawImage(media, sx, sy, sw, sh, 0, 0, cols, rows);
+    } catch (e) { return; }
+
+    destCtx.imageSmoothingEnabled = false;
+    destCtx.drawImage(bufferCanvas, 0, 0, cols, rows, x, y, w, h);
+  }
+
+  // ---------------------------------------------------------------
+  // canvas sizing
+  // ---------------------------------------------------------------
+  let frameRect = { x: 0, y: 0, w: 0, h: 0 };
+
+  function resizeCanvas() {
+    const rect = canvasContainer.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  new ResizeObserver(resizeCanvas).observe(canvasContainer);
+  resizeCanvas();
+
+  // ---------------------------------------------------------------
+  // main draw loop
+  // ---------------------------------------------------------------
+  function draw() {
+    const rect = canvasContainer.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (state.media && state.mediaW && state.mediaH) {
+      emptyState.style.display = 'none';
+      frameRect = fitFrame(rect.width, rect.height, currentAspect());
+      renderPixelated(ctx, state.media, state.mediaW, state.mediaH,
+        frameRect.x, frameRect.y, frameRect.w, frameRect.h, state.pixelSlider);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(frameRect.x + 0.5, frameRect.y + 0.5, frameRect.w - 1, frameRect.h - 1);
+    } else {
+      emptyState.style.display = 'flex';
+    }
+
+    if (state.mode === 'video' && state.videoLoaded && !state.recording) {
+      updateSeekUI();
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // ---------------------------------------------------------------
+  // mode switching
+  // ---------------------------------------------------------------
+  function setMode(mode) {
+    state.mode = mode;
+    modePhotoBtn.classList.toggle('active', mode === 'photo');
+    modeVideoBtn.classList.toggle('active', mode === 'video');
+    uploadBtn.textContent = mode === 'photo' ? 'Nahrát fotku' : 'Nahrát video';
+    videoControlsSection.style.display = mode === 'video' ? 'flex' : 'none';
+    videoExportRow.style.display = mode === 'video' ? 'flex' : 'none';
+    saveBtn.style.display = mode === 'photo' ? 'block' : 'none';
+    exportAllBtn.style.display = mode === 'photo' ? 'block' : 'none';
+    canvasBottomBar.classList.toggle('visible', mode === 'video' && state.videoLoaded);
+
+    if (mode === 'video') {
+      state.media = state.videoLoaded ? sourceVideo : null;
+      state.mediaW = sourceVideo.videoWidth || 0;
+      state.mediaH = sourceVideo.videoHeight || 0;
+    } else {
+      sourceVideo.pause();
+      state.isPlaying = false;
+      playPauseBtn.textContent = 'Přehrát';
+    }
+  }
+  modePhotoBtn.addEventListener('click', () => setMode('photo'));
+  modeVideoBtn.addEventListener('click', () => setMode('video'));
+
+  // ---------------------------------------------------------------
+  // upload
+  // ---------------------------------------------------------------
+  uploadBtn.addEventListener('click', () => {
+    (state.mode === 'photo' ? fileInput : videoInput).click();
+  });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImageFile(e.target.files[0]); });
+  videoInput.addEventListener('change', e => { if (e.target.files[0]) loadVideoFile(e.target.files[0]); });
+
+  ['dragover', 'dragenter'].forEach(evt =>
+    canvasContainer.addEventListener(evt, e => { e.preventDefault(); canvasContainer.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach(evt =>
+    canvasContainer.addEventListener(evt, e => { e.preventDefault(); canvasContainer.classList.remove('dragover'); }));
+  canvasContainer.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (file.type.startsWith('image/')) { setMode('photo'); loadImageFile(file); }
+    else if (file.type.startsWith('video/')) { setMode('video'); loadVideoFile(file); }
+  });
+
+  function resetCrop() {
+    state.panX = 0; state.panY = 0; state.zoom = 1;
+    zoomSlider.value = 1; zoomValue.textContent = '1.00×';
+  }
+
+  function loadImageFile(file) {
+    const img = new Image();
+    img.onload = () => {
+      state.media = img;
+      state.mediaW = img.naturalWidth;
+      state.mediaH = img.naturalHeight;
+      resetCrop();
+      dimsPill.textContent = `${img.naturalWidth}×${img.naturalHeight}`;
+      setStatus('Fotka nahrána.');
+    };
+    img.src = URL.createObjectURL(file);
+  }
+
+  function loadVideoFile(file) {
+    setStatus('Nahrávám video…');
+    sourceVideo.src = URL.createObjectURL(file);
+    sourceVideo.onloadedmetadata = () => {
+      state.videoLoaded = true;
+      state.media = sourceVideo;
+      state.mediaW = sourceVideo.videoWidth;
+      state.mediaH = sourceVideo.videoHeight;
+      resetCrop();
+      dimsPill.textContent = `${sourceVideo.videoWidth}×${sourceVideo.videoHeight}`;
+      playPauseBtn.disabled = false;
+      stopBtn.disabled = false;
+      canvasBottomBar.classList.add('visible');
+      timeDuration.textContent = formatTime(sourceVideo.duration);
+      convertBtn.style.display = 'none';
+      setStatus('Video nahráno. Klikni na Přehrát.');
+    };
+    sourceVideo.onended = () => {
+      state.isPlaying = false;
+      playPauseBtn.textContent = 'Přehrát';
+      if (state.recording) stopRecording();
+    };
+  }
+
+  // ---------------------------------------------------------------
+  // video playback + seek bar
+  // ---------------------------------------------------------------
+  function formatTime(t) {
+    if (!isFinite(t) || t < 0) t = 0;
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function updateSeekUI() {
+    if (!sourceVideo.duration) return;
+    if (!state.seeking) {
+      seekBar.value = (sourceVideo.currentTime / sourceVideo.duration) * 100;
+    }
+    timeCurrent.textContent = formatTime(sourceVideo.currentTime);
+    timeDuration.textContent = formatTime(sourceVideo.duration);
+  }
+
+  seekBar.addEventListener('input', () => {
+    if (!state.videoLoaded || state.recording) return;
+    state.seeking = true;
+    const t = (seekBar.value / 100) * sourceVideo.duration;
+    sourceVideo.currentTime = t;
+    timeCurrent.textContent = formatTime(t);
+  });
+  seekBar.addEventListener('change', () => { state.seeking = false; });
+
+  playPauseBtn.addEventListener('click', () => {
+    if (!state.videoLoaded) return;
+    if (state.isPlaying) { sourceVideo.pause(); playPauseBtn.textContent = 'Přehrát'; state.isPlaying = false; }
+    else { sourceVideo.play(); playPauseBtn.textContent = 'Pauza'; state.isPlaying = true; }
+  });
+  stopBtn.addEventListener('click', () => {
+    if (!state.videoLoaded) return;
+    sourceVideo.pause(); sourceVideo.currentTime = 0;
+    playPauseBtn.textContent = 'Přehrát'; state.isPlaying = false;
+    if (state.recording) stopRecording();
+  });
+
+  // ---------------------------------------------------------------
+  // format buttons
+  // ---------------------------------------------------------------
+  formatButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      formatButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.format = btn.dataset.format;
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // zoom + pixel size controls
+  // ---------------------------------------------------------------
+  zoomSlider.addEventListener('input', () => {
+    state.zoom = parseFloat(zoomSlider.value);
+    zoomValue.textContent = state.zoom.toFixed(2) + '×';
+  });
+  resetCropBtn.addEventListener('click', resetCrop);
+
+  pixelSizeSlider.addEventListener('input', () => {
+    state.pixelSlider = parseInt(pixelSizeSlider.value, 10);
+    pixelSizeValue.textContent = state.pixelSlider;
+  });
+
+  qualitySelect.addEventListener('change', () => { state.quality = qualitySelect.value; });
+
+  // ---------------------------------------------------------------
+  // drag to pan + wheel to zoom
+  // ---------------------------------------------------------------
+  let dragging = false;
+  let dragStart = null;
+
+  canvas.addEventListener('pointerdown', e => {
+    if (!state.media) return;
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    if (mx < frameRect.x || mx > frameRect.x + frameRect.w || my < frameRect.y || my > frameRect.y + frameRect.h) return;
+    dragging = true;
+    canvas.classList.add('dragging');
+    canvas.setPointerCapture(e.pointerId);
+    dragStart = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!dragging || !state.media) return;
+    const { sw, sh } = computeCrop(state.mediaW, state.mediaH, frameRect.w, frameRect.h);
+    const coverScale = Math.max(frameRect.w / state.mediaW, frameRect.h / state.mediaH);
+    const scale = coverScale * state.zoom;
+    const maxPanX = (state.mediaW - sw) / 2;
+    const maxPanY = (state.mediaH - sh) / 2;
+    const dx = e.clientX - dragStart.x, dy = e.clientY - dragStart.y;
+    const dPanX = maxPanX > 0 ? -(dx / scale) / maxPanX : 0;
+    const dPanY = maxPanY > 0 ? -(dy / scale) / maxPanY : 0;
+    state.panX = Math.min(1, Math.max(-1, dragStart.panX + dPanX));
+    state.panY = Math.min(1, Math.max(-1, dragStart.panY + dPanY));
+  });
+  ['pointerup', 'pointercancel'].forEach(evt =>
+    canvas.addEventListener(evt, () => { dragging = false; canvas.classList.remove('dragging'); }));
+
+  canvas.addEventListener('wheel', e => {
+    if (!state.media) return;
+    e.preventDefault();
+    const delta = -e.deltaY * 0.0015;
+    state.zoom = Math.min(4, Math.max(1, state.zoom + delta));
+    zoomSlider.value = state.zoom;
+    zoomValue.textContent = state.zoom.toFixed(2) + '×';
+  }, { passive: false });
+
+  // ---------------------------------------------------------------
+  // export: resolution planning
+  // ---------------------------------------------------------------
+  function outputDims(format, quality, mediaW, mediaH) {
+    const short = quality === '4k' ? 2160 : 1080;
+    const long = quality === '4k' ? 3840 : 1920;
+    if (format === '16:9') return { w: long, h: short };
+    if (format === '9:16') return { w: short, h: long };
+    if (format === '1:1') return { w: short, h: short };
+    const nativeLong = Math.max(mediaW, mediaH);
+    const factor = Math.max(1, long / nativeLong);
+    return { w: Math.round(mediaW * factor), h: Math.round(mediaH * factor) };
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  function timestamp() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  }
+
+  function exportPhotoBlob(format, quality, cb) {
+    const { w, h } = outputDims(format, quality, state.mediaW, state.mediaH);
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = w; exportCanvas.height = h;
+    const exCtx = exportCanvas.getContext('2d');
+    const savedFormat = state.format;
+    state.format = format;
+    renderPixelated(exCtx, state.media, state.mediaW, state.mediaH, 0, 0, w, h, state.pixelSlider);
+    state.format = savedFormat;
+    exportCanvas.toBlob(blob => cb(blob, w, h), 'image/png');
+  }
+
+  saveBtn.addEventListener('click', () => {
+    if (!state.media) { setStatus('Nejdřív nahraj fotku.'); return; }
+    setStatus('Renderuji PNG…');
+    exportPhotoBlob(state.format, state.quality, (blob, w, h) => {
+      downloadBlob(blob, `pixel_${state.format.replace(':','x')}_${w}x${h}_${timestamp()}.png`);
+      setStatus(`Uloženo: ${w}×${h}px.`);
+    });
+  });
+
+  exportAllBtn.addEventListener('click', () => {
+    if (!state.media) { setStatus('Nejdřív nahraj fotku.'); return; }
+    const formats = ['16:9', '9:16', '1:1', 'original'];
+    let i = 0;
+    setStatus('Exportuji všechny formáty…');
+    (function next() {
+      if (i >= formats.length) { setStatus('Hotovo: všechny formáty uloženy.'); return; }
+      const f = formats[i++];
+      exportPhotoBlob(f, state.quality, (blob, w, h) => {
+        downloadBlob(blob, `pixel_${f.replace(':','x')}_${w}x${h}_${timestamp()}.png`);
+        setTimeout(next, 300);
+      });
+    })();
+  });
+
+  snapshotBtn.addEventListener('click', () => {
+    if (!state.videoLoaded) { setStatus('Nejdřív nahraj video.'); return; }
+    setStatus('Ukládám snímek…');
+    exportPhotoBlob(state.format, state.quality, (blob, w, h) => {
+      downloadBlob(blob, `pixel_frame_${w}x${h}_${timestamp()}.png`);
+      setStatus(`Snímek uložen: ${w}×${h}px.`);
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // video recording export (prefers mp4, falls back to webm + optional converter)
+  // ---------------------------------------------------------------
+  let recorder = null, recordedChunks = [], recordCanvas = null, recordCtx = null, recordRAF = null;
+  let lastRecordedBlob = null;
+  let usedMimeType = '';
+
+  function pickMimeType() {
+    const candidates = [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm'
+    ];
+    return candidates.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || 'video/webm';
+  }
+
+  function startRecording() {
+    if (!state.videoLoaded) { setStatus('Nejdřív nahraj video.'); return; }
+    if (!window.MediaRecorder) { setStatus('Tento prohlížeč nepodporuje nahrávání videa (MediaRecorder).'); return; }
+
+    convertBtn.style.display = 'none';
+    formatHint.textContent = '';
+
+    const { w, h } = outputDims(state.format, state.quality, state.mediaW, state.mediaH);
+    recordCanvas = document.createElement('canvas');
+    recordCanvas.width = w; recordCanvas.height = h;
+    recordCtx = recordCanvas.getContext('2d');
+
+    usedMimeType = pickMimeType();
+    const stream = recordCanvas.captureStream(30);
+    recordedChunks = [];
+    recorder = new MediaRecorder(stream, { mimeType: usedMimeType, videoBitsPerSecond: 8_000_000 });
+    recorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    recorder.onstop = () => {
+      const isMp4 = usedMimeType.includes('mp4');
+      const blob = new Blob(recordedChunks, { type: isMp4 ? 'video/mp4' : 'video/webm' });
+      lastRecordedBlob = blob;
+      downloadBlob(blob, `pixel_video_${w}x${h}_${timestamp()}.${isMp4 ? 'mp4' : 'webm'}`);
+      if (isMp4) {
+        setStatus(`Video uloženo: ${w}×${h}px (mp4).`);
+      } else {
+        setStatus(`Video uloženo: ${w}×${h}px (webm). Tvůj prohlížeč neumí nahrávat rovnou do mp4.`);
+        formatHint.textContent = 'Soubor je ve formátu webm (přehraje ho VLC, Chrome, Firefox). Pokud potřebuješ mp4, použij tlačítko níže.';
+        convertBtn.style.display = 'block';
+      }
+    };
+
+    sourceVideo.currentTime = 0;
+    sourceVideo.play();
+    state.isPlaying = true;
+    playPauseBtn.textContent = 'Pauza';
+    recorder.start();
+    state.recording = true;
+    recordBtn.textContent = 'Zastavit nahrávání';
+    seekBar.disabled = true;
+    statusEl.classList.add('recording');
+
+    (function tick() {
+      if (!state.recording) return;
+      renderPixelated(recordCtx, sourceVideo, state.mediaW, state.mediaH, 0, 0, w, h, state.pixelSlider);
+      timeCurrent.textContent = formatTime(sourceVideo.currentTime);
+      timeDuration.textContent = formatTime(sourceVideo.duration);
+      seekBar.value = sourceVideo.duration ? (sourceVideo.currentTime / sourceVideo.duration) * 100 : 0;
+      setStatus(`Nahrávám: ${formatTime(sourceVideo.currentTime)} / ${formatTime(sourceVideo.duration)}`);
+      recordRAF = requestAnimationFrame(tick);
+    })();
+  }
+
+  function stopRecording() {
+    if (!state.recording) return;
+    state.recording = false;
+    statusEl.classList.remove('recording');
+    seekBar.disabled = false;
+    if (recordRAF) cancelAnimationFrame(recordRAF);
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    recordBtn.textContent = 'Spustit nahrávání';
+  }
+
+  recordBtn.addEventListener('click', () => { state.recording ? stopRecording() : startRecording(); });
+
+  // ---------------------------------------------------------------
+  // optional: convert last webm recording to mp4 using ffmpeg.wasm (lazy-loaded)
+  // ---------------------------------------------------------------
+  let ffmpegInstance = null;
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Nepodařilo se načíst ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function getFFmpeg() {
+    if (ffmpegInstance) return ffmpegInstance;
+    await loadScript('https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js');
+    const { createFFmpeg } = window.FFmpeg;
+    ffmpegInstance = createFFmpeg({
+      log: false,
+      corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+    });
+    await ffmpegInstance.load();
+    return ffmpegInstance;
+  }
+
+  convertBtn.addEventListener('click', async () => {
+    if (!lastRecordedBlob) return;
+    convertBtn.disabled = true;
+    try {
+      setStatus('Načítám konvertor (poprvé to chvíli trvá, cca 25 MB)…');
+      const ff = await getFFmpeg();
+      const { fetchFile } = window.FFmpeg;
+      setStatus('Převádím na MP4… u delších videí to může trvat.');
+      ff.FS('writeFile', 'input.webm', await fetchFile(lastRecordedBlob));
+      await ff.run('-i', 'input.webm', '-c:v', 'libx264', '-preset', 'fast', '-pix_fmt', 'yuv420p', 'output.mp4');
+      const data = ff.FS('readFile', 'output.mp4');
+      const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
+      downloadBlob(mp4Blob, `pixel_video_${timestamp()}.mp4`);
+      setStatus('MP4 uložen.');
+    } catch (err) {
+      setStatus('Převod se nezdařil: ' + err.message);
+    } finally {
+      convertBtn.disabled = false;
+    }
+  });
+
+  // ---------------------------------------------------------------
+  // misc
+  // ---------------------------------------------------------------
+  function setStatus(msg) { statusEl.textContent = msg; }
+
+  setMode('photo');
+})();
+</script>
+</body>
+</html>
